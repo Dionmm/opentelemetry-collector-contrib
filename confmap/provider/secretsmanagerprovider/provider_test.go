@@ -60,7 +60,6 @@ func TestSecretsManagerFetchSecret(t *testing.T) {
 			b, _ := json.Marshal(response)
 			_, err := writer.Write(b)
 			require.NoError(t, err)
-			writer.WriteHeader(http.StatusOK)
 		}
 	}))
 	defer s.Close()
@@ -73,4 +72,39 @@ func TestSecretsManagerFetchSecret(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, value)
 	assert.Equal(t, secretValue, value)
+}
+
+func TestSecretsManagerFetchJSONSecret(t *testing.T) {
+	secretName := "FOO"
+	secretValue := []byte(`{"foo":1,"bar":"abcdefg"}`)
+
+	s := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Amz-Target") == "secretsmanager.GetSecretValue" {
+			response := &struct {
+				Arn          string `json:"ARN"`
+				CreatedDate  int64  `json:"CreatedDate"`
+				Name         string `json:"Name"`
+				SecretString string `json:"SecretString"`
+			}{
+				Arn:          secretName,
+				CreatedDate:  time.Now().Unix(),
+				Name:         secretName,
+				SecretString: string(secretValue),
+			}
+
+			b, _ := json.Marshal(response)
+			_, err := writer.Write(b)
+			require.NoError(t, err)
+		}
+	}))
+	defer s.Close()
+	fp := NewTestProvider(s.URL)
+	result, err := fp.Retrieve(context.Background(), "secretsmanager:"+secretName+"#bar", nil)
+	assert.NoError(t, err)
+	assert.NoError(t, fp.Shutdown(context.Background()))
+
+	value, err := result.AsRaw()
+	assert.NoError(t, err)
+	assert.NotNil(t, value)
+	assert.Equal(t, "abcdefg", value)
 }

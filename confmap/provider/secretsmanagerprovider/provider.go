@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"encoding/json"
 
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"go.opentelemetry.io/collector/confmap"
@@ -32,8 +33,7 @@ func (provider *provider) Retrieve(ctx context.Context, uri string, _ confmap.Wa
 	if !strings.HasPrefix(uri, schemeName+":") {
 		return nil, fmt.Errorf("%q uri is not supported by %q provider", uri, schemeName)
 	}
-
-	secretArn := strings.Replace(uri, schemeName+":", "", 1)
+	secretArn, secretStringKey, keyFound := strings.Cut(uri, "#")
 
 	input := &secretsmanager.GetSecretValueInput{
 		SecretId: &secretArn,
@@ -46,6 +46,15 @@ func (provider *provider) Retrieve(ctx context.Context, uri string, _ confmap.Wa
 
 	if response.SecretString == nil {
 		return nil, nil
+	}
+
+	if keyFound {
+		conf := make(map[string]interface{})
+		err = json.Unmarshal([]byte(*response.SecretString), &conf)
+		if err != nil {
+			return nil, err
+		}
+		return confmap.NewRetrieved(conf[secretStringKey])
 	}
 
 	return confmap.NewRetrieved(*response.SecretString)
